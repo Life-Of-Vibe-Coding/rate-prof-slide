@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slide-rater"
+version = "0.1.0"
+description = "AI lecture slide quality rater with explainable 5-metric scoring"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.52.0",
+  "pypdf>=5.0.0",
+  "pdfplumber>=0.11.4",
+  "python-pptx>=0.6.23",
+  "Pillow>=10.4.0",
+  "numpy>=2.1.0",
+  "flask>=3.0.0",
+]
+
+[project.scripts]
+slide-rater = "slide_rater.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

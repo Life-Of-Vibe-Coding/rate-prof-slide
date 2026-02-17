@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slide Rater Test UI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="background"></div>
+    <main class="page">
+      <section class="card form-card">
+        <h1>Slide Quality Rater</h1>
+        <p class="subtitle">Upload a deck and run a quick rubric score test.</p>
+
+        <p class="steps-hint">With <strong>streaming</strong> on, each pipeline step is shown in detail below.</p>
+
+        <form method="post" action="/rate" enctype="multipart/form-data" class="form-grid">
+          <label class="field">
+            <span>Deck File (.pdf/.pptx)</span>
+            <input type="file" name="deck" accept=".pdf,.pptx" required />
+          </label>
+
+          <label class="field">
+            <span>Mode</span>
+            <select name="mode">
+              <option value="student">student</option>
+              <option value="expert">expert</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Model</span>
+            <input type="text" name="model" value="qwen-flash" />
+          </label>
+
+          <label class="field">
+            <span>Base URL</span>
+            <input type="text" name="base_url" value="https://dashscope-intl.aliyuncs.com/compatible-mode/v1" />
+          </label>
+
+          <label class="field">
+            <span>Qwen API Key (optional if env set)</span>
+            <input type="password" name="api_key" placeholder="sk-..." />
+          </label>
+
+          <label class="field">
+            <span>Weights JSON (optional)</span>
+            <input type="text" name="weights" placeholder='{"visual":0.2,"easy_to_follow":0.25}' />
+          </label>
+
+          <label class="field field-check">
+            <input type="checkbox" name="per_metric" value="on" />
+            <span>Per-metric prompts (5 API calls, more accurate per dimension)</span>
+          </label>
+
+          <label class="field field-check">
+            <input type="checkbox" name="stream" id="stream-checkbox" value="on" />
+            <span>Show each metric as it completes (streaming)</span>
+          </label>
+
+          <button type="submit" id="submit-btn">Run Rating</button>
+        </form>
+
+        {% if error %}
+        <div class="error" role="alert">{{ error }}</div>
+        {% endif %}
+      </section>
+
+      <section class="card steps-card" id="steps-card" aria-hidden="true">
+        <h2>Steps</h2>
+        <ol class="steps-list" id="steps-list" aria-label="Pipeline steps"></ol>
+      </section>
+
+      <section class="card result-card">
+        <h2>Result</h2>
+        <div id="result-container">
+          {% if result %}
+          <div class="score-row">
+            <div class="score-box">
+              <div class="label">Overall</div>
+              <div class="value">{{ result.overall_score }}</div>
+            </div>
+            <div class="score-box">
+              <div class="label">Judge Mode</div>
+              <div class="value small">{{ result.judge_mode }}</div>
+            </div>
+          </div>
+
+          <div class="metric-list" id="metric-list">
+            {% for name, data in result.metric_scores.items() %}
+            <article class="metric-item">
+              <h3>{{ name }}</h3>
+              <p class="metric-score">{{ data.score }}/10</p>
+              {% if data.findings and data.findings|length > 0 %}
+              <details class="findings-details">
+                <summary>Findings ({{ data.findings|length }})</summary>
+                <ul class="findings-list">
+                  {% for f in data.findings %}
+                  <li><strong>Slide {{ f.slide }}</strong>: {{ f.evidence }} — <em>{{ f.fix }}</em></li>
+                  {% endfor %}
+                </ul>
+              </details>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+
+          <h3>Top 5 Improvements</h3>
+          <ol class="improve-list" id="improve-list">
+            {% for item in result.top_5_improvements %}
+            <li>
+              <strong>{{ item.action }}</strong>
+              <span>{{ item.reason }}</span>
+            </li>
+            {% endfor %}
+          </ol>
+
+          <p class="report-path" id="report-path-el">Report saved: <code>{{ result.report_path }}</code></p>
+          {% else %}
+          <p class="placeholder" id="result-placeholder">No run yet. Submit a file to see scores here.</p>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+    <script>
+      (function () {
+        const form = document.querySelector('.form-grid');
+        const streamCheckbox = document.getElementById('stream-checkbox');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', function (e) {
+          if (!streamCheckbox.checked) return;
+
+          e.preventDefault();
+          submitBtn.disabled = true;
+          const container = document.getElementById('result-container');
+          const stepsCard = document.getElementById('steps-card');
+          const stepsList = document.getElementById('steps-list');
+
+          stepsCard.setAttribute('aria-hidden', 'false');
+          stepsList.innerHTML = '';
+          var stepRows = {};
+
+          var stepLabels = {
+            convert_pdf: 'Convert deck to PDF',
+            render_slides: 'Render slides to images',
+            extract_features: 'Extract text and layout features',
+            scoring: 'Score metrics (LLM or fallback)',
+            score_origination: 'Scoring: origination',
+            score_visual: 'Scoring: visual',
+            score_engagement: 'Scoring: engagement',
+            score_formula_clarity: 'Scoring: formula clarity',
+            score_easy_to_follow: 'Scoring: easy to follow',
+            aggregate: 'Compute overall score',
+            save_report: 'Write report file',
+          };
+
+          function stepLabel(stepId) {
+            if (stepLabels[stepId]) return stepLabels[stepId];
+            if (stepId.indexOf('score_') === 0) return 'Scoring: ' + stepId.replace('score_', '');
+            return stepId;
+          }
+
+          function ensureStep(stepId) {
+            if (!stepRows[stepId]) {
+              var li = document.createElement('li');
+              li.className = 'step-item';
+              li.setAttribute('data-step', stepId);
+              li.innerHTML = '<span class="step-label">' + stepLabel(stepId) + '</span> <span class="step-status"></span><span class="step-detail"></span>';
+              stepsList.appendChild(li);
+              stepRows[stepId] = { el: li, statusEl: li.querySelector('.step-status'), detailEl: li.querySelector('.step-detail') };
+            }
+            return stepRows[stepId];
+          }
+
+          function applyStep(stepId, status, detail) {
+            var row = ensureStep(stepId);
+            row.el.classList.remove('step-pending', 'step-running', 'step-done', 'step-failed');
+            if (status === 'started') {
+              row.el.classList.add('step-running');
+              row.statusEl.textContent = '…';
+            } else if (status === 'completed') {
+              row.el.classList.add('step-done');
+              row.statusEl.textContent = '✓';
+            } else if (status === 'failed') {
+              row.el.classList.add('step-failed');
+              row.statusEl.textContent = '✗';
+            } else {
+              row.el.classList.add('step-pending');
+              row.statusEl.textContent = '';
+            }
+            row.detailEl.textContent = detail ? ' ' + detail : '';
+          }
+
+          container.innerHTML = '<p class="placeholder">Evaluating…</p>';
+          const metricListEl = document.createElement('div');
+          metricListEl.className = 'metric-list';
+          metricListEl.id = 'metric-list';
+
+          function applyEvent(data) {
+            if (data.error) {
+              container.innerHTML = '<div class="error" role="alert">' + (data.error || data.message || 'Error') + '</div>';
+              return;
+            }
+            if (data.type === 'step') {
+              applyStep(data.step_id || '', data.status || '', data.detail || '');
+              return;
+            }
+            if (data.type === 'metric') {
+              var scoreRow = container.querySelector('.score-row');
+              if (!scoreRow) {
+                container.innerHTML = '';
+                scoreRow = document.createElement('div');
+                scoreRow.className = 'score-row';
+                scoreRow.innerHTML = '<div class="score-box"><div class="label">Overall</div><div class="value" id="overall-value">—</div></div><div class="score-box"><div class="label">Judge Mode</div><div class="value small" id="judge-mode-value">—</div></div>';
+                container.appendChild(scoreRow);
+              }
+              if (!container.contains(metricListEl)) container.appendChild(metricListEl);
+              var item = document.createElement('article');
+              item.className = 'metric-item';
+              var d = data.data || {};
+              var findingsHtml = '';
+              if (d.findings && d.findings.length) {
+                findingsHtml = '<details class="findings-details"><summary>Findings (' + d.findings.length + ')</summary><ul class="findings-list">' +
+                  d.findings.map(function (f) { return '<li><strong>Slide ' + f.slide + '</strong>: ' + (f.evidence || '') + ' — <em>' + (f.fix || '') + '</em></li>'; }).join('') + '</ul></details>';
+              }
+              item.innerHTML = '<h3>' + (data.name || '') + '</h3><p class="metric-score">' + (d.score != null ? d.score : '—') + '/10</p>' + findingsHtml;
+              metricListEl.appendChild(item);
+            } else if (data.type === 'done') {
+              var ov = container.querySelector('#overall-value');
+              var jm = container.querySelector('#judge-mode-value');
+              if (ov) ov.textContent = data.overall_score != null ? data.overall_score : '—';
+              if (jm) jm.textContent = data.judge_mode || '—';
+              if (data.top_5_improvements && data.top_5_improvements.length) {
+                var h3 = document.createElement('h3');
+                h3.textContent = 'Top 5 Improvements';
+                container.appendChild(h3);
+                var ol = document.createElement('ol');
+                ol.className = 'improve-list';
+                data.top_5_improvements.forEach(function (item) {
+                  var li = document.createElement('li');
+                  li.innerHTML = '<strong>' + (item.action || '') + '</strong><span>' + (item.reason || '') + '</span>';
+                  ol.appendChild(li);
+                });
+                container.appendChild(ol);
+              }
+              if (data.report_path) {
+                var p = document.createElement('p');
+                p.className = 'report-path';
+                p.innerHTML = 'Report saved: <code>' + (data.report_path || '') + '</code>';
+                container.appendChild(p);
+              }
+            } else if (data.type === 'error') {
+              container.innerHTML = '<div class="error" role="alert">' + (data.message || 'Error') + '</div>';
+            }
+          }
+
+          fetch('/rate_stream', { method: 'POST', body: new FormData(form) })
+            .then(function (res) {
+              if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || res.statusText); });
+              var reader = res.body.getReader();
+              var decoder = new TextDecoder();
+              var buf = '';
+              return reader.read().then(function processChunk(result) {
+                if (result.done) {
+                  if (buf.length && !container.querySelector('.error')) {
+                    buf.split('\n').forEach(function (line) {
+                      if (line.startsWith('data: ')) {
+                        try { applyEvent(JSON.parse(line.slice(6))); } catch (err) {}
+                      }
+                    });
+                  }
+                  if (!container.querySelector('.score-row') && !container.querySelector('.error')) {
+                    container.innerHTML = '<p class="placeholder">No run yet. Submit a file to see scores here.</p>';
+                  }
+                  return;
+                }
+                buf += decoder.decode(result.value, { stream: true });
+                var parts = buf.split('\n\n');
+                buf = parts.pop() || '';
+                parts.forEach(function (block) {
+                  block.split('\n').forEach(function (line) {
+                    if (line.startsWith('data: ')) {
+                      try { applyEvent(JSON.parse(line.slice(6))); } catch (err) {}
+                    }
+                  });
+                });
+                return reader.read().then(processChunk);
+              });
+            })
+            .catch(function (err) {
+              container.innerHTML = '<div class="error" role="alert">' + (err.message || 'Request failed') + '</div>';
+            })
+            .finally(function () {
+              submitBtn.disabled = false;
+            });
+        });
+
+        document.getElementById('stream-checkbox').addEventListener('change', function () {
+          var stepsCard = document.getElementById('steps-card');
+          stepsCard.setAttribute('aria-hidden', this.checked ? 'false' : 'true');
+        });
+      })();
+    </script>
+  </body>
+</html>

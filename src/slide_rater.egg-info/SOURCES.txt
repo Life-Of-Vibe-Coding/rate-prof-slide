@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/slide_rater/__init__.py
+src/slide_rater/cli.py
+src/slide_rater/extract.py
+src/slide_rater/judge.py
+src/slide_rater/models.py
+src/slide_rater/pipeline.py
+src/slide_rater.egg-info/PKG-INFO
+src/slide_rater.egg-info/SOURCES.txt
+src/slide_rater.egg-info/dependency_links.txt
+src/slide_rater.egg-info/entry_points.txt
+src/slide_rater.egg-info/requires.txt
+src/slide_rater.egg-info/top_level.txt

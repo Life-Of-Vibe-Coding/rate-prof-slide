@@ -1,0 +1,2 @@
+[console_scripts]
+slide-rater = slide_rater.cli:main
