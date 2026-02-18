@@ -4,7 +4,7 @@
 
 Welcome to **Slide Scolder**, the AI-powered critique engine that doesn't hold back. If your lecture slides are a wall of text or a visual nightmare, the Scolder will find it, score it, and tell you exactly how to fix it with a bit of "tough love."
 
-![Slide Scolder UI Mockup](https://raw.githubusercontent.com/YifanXu1999/rate-prof-slide/main/web/static/screenshot.png) *(Placeholder if you have an actual screenshot)*
+![Slide Scolder UI](web/static/screenshot.png)
 
 ---
 
